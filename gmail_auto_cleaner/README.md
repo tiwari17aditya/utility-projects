@@ -19,10 +19,15 @@ An automated tool to clean the **Spam** and **Trash** (Bin) folders across multi
 
 To allow the script to access IMAP securely without disabling 2FA or entering your primary Google account password:
 
-1. Enable **2-Step Verification** on your Google Account: [https://myaccount.google.com/signinoptions/two-step-verification](https://myaccount.google.com/signinoptions/two-step-verification)
-2. Go to **App Passwords**: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-3. Enter an App Name (e.g. `Gmail Cleaner`) and click **Create**.
-4. Copy the generated 16-character password (spaces don't matter).
+Direct URLs:
+- 🔑 **Google App Passwords Direct Link**: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+- 🔒 **Google 2-Step Verification Link**: [https://myaccount.google.com/signinoptions/two-step-verification](https://myaccount.google.com/signinoptions/two-step-verification)
+
+### Steps:
+1. Ensure **2-Step Verification** is turned ON for your Google Account via the 2-Step Verification link above.
+2. Open the **App Passwords** link: [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+3. Enter an App Name (e.g., `Gmail Cleaner`) and click **Create**.
+4. Copy the generated 16-character password (spaces can be included or omitted).
 
 ---
 
