@@ -1,10 +1,16 @@
-# Config files with actual passwords
+# Environment & Credentials files
+.env
+*.env
 gmail_auto_cleaner/config.json
 
-# Environment / Data / Cache files
+# Audit Logs & Data History
+gmail_auto_cleaner/deleted_emails_log.json
+gmail_auto_cleaner/*.log
+D:\System_Maintenance_Logs/
+
+# Python / IDE files
 __pycache__/
 *.pyc
 venv/
 .vscode/
 .idea/
-D:\System_Maintenance_Logs/
