@@ -47,3 +47,10 @@ A curated collection of single-functionality utility scripts, maintenance tools,
 
 ## 🚀 Usage & Setup
 Navigate to any individual tool directory and check its `README.md` or file documentation for execution instructions.
+
+---
+
+## 📅 Session Logs & Roadmap
+- 📝 **Session Summary**: [`session_summary_2026-08-16.md`](session_summary_2026-08-16.md)
+- 💡 **Future Enhancements & Roadmap**: [`enhancements_2026-08-16.md`](enhancements_2026-08-16.md)
+
