@@ -1,0 +1,16 @@
+{
+  "accounts": [
+    {
+      "name": "Personal Account",
+      "email": "user1@gmail.com",
+      "app_password": "abcd efgh ijkl mnop",
+      "enabled": true
+    },
+    {
+      "name": "Family Member 1",
+      "email": "family1@gmail.com",
+      "app_password": "qrst uvwx yzab cdef",
+      "enabled": true
+    }
+  ]
+}
