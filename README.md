@@ -51,8 +51,8 @@ Navigate to any individual tool directory and check its `README.md` or file docu
 ---
 
 ## 📅 Session Logs & Roadmap
-- 📝 **Session Summary (2026-08-19)**: [`docs/session_logs/session_summary_2026-08-19.md`](docs/session_logs/session_summary_2026-08-19.md)
-- 📝 **Session Summary (2026-08-16)**: [`docs/session_logs/session_summary_2026-08-16.md`](docs/session_logs/session_summary_2026-08-16.md)
-- 💡 **Future Enhancements & Roadmap**: [`docs/session_logs/enhancements_2026-08-16.md`](docs/session_logs/enhancements_2026-08-16.md)
+- 💡 **Future Enhancements & Roadmap**: [`docs/enhancements.md`](docs/enhancements.md)
+- 📝 **Session Summary (2026-08-19)**: [`docs/logs/session_logs/session_summary_2026-08-19.md`](docs/logs/session_logs/session_summary_2026-08-19.md)
+- 📝 **Session Summary (2026-08-16)**: [`docs/logs/session_logs/session_summary_2026-08-16.md`](docs/logs/session_logs/session_summary_2026-08-16.md)
 
 

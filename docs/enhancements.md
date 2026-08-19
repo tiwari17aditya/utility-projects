@@ -1,4 +1,4 @@
-# Future Enhancements & Personal Utility Roadmap — 2026-08-16
+# Future Enhancements & Personal Utility Roadmap
 
 This document outlines proposed future enhancements for existing utilities and ideas for new personal utility tools to expand the `utility-items` workspace.
 
@@ -7,7 +7,7 @@ This document outlines proposed future enhancements for existing utilities and i
 ## 🚀 Enhancements for Existing Utilities
 
 ### 1. Gmail Auto-Cleaner (`gmail_auto_cleaner/`)
-- **Web Dashboard / GUI**: Build a simple local FastAPI/Streamlit interface to view deleted email logs (`deleted_emails_log.json`), filter by date/account, and restore accidentally flagged emails if supported.
+- **Web Dashboard / GUI**: Build a simple local FastAPI/Streamlit interface to view per-user deleted email logs (`deleted_emails/<username>.json`), filter by date/account, and search subjects.
 - **Rules Engine / Filters**: Add criteria matching to only auto-purge emails older than `N` days (e.g. `--older-than 30d`) or matching specific keywords.
 - **Telegram / Email Notification Digest**: Send a daily summary message (e.g. "Gmail Cleaner: Purged 15 spam & 30 trash emails today") via Telegram Bot or Email.
 - **Google OAuth2 Support**: Provide an option for OAuth2 desktop flow as an alternative to App Passwords.

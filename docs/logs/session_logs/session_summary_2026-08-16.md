@@ -9,7 +9,7 @@ During this session, we restructured the repository from `OnefunctionalityProjec
 
 ### 1. Repository Cleanup & Renaming
 - Removed the old `qr_generator` placeholder folder.
-- Updated main [`README.md`](README.md) to title **`Utility-Items`** with a comprehensive index of all categorized tools.
+- Updated main [`README.md`](../../../README.md) to title **`Utility-Items`** with a comprehensive index of all categorized tools.
 - Configured `.gitignore` to protect sensitive credentials (`config.json`, `.env`), runtime logs (`*.log`), and deletion metadata history (`deleted_emails_log.json`).
 
 ### 2. Desktop Utility Imports (`C:\Users\Admin\Desktop\utilities`)
@@ -25,11 +25,11 @@ Imported and organized desktop tools into standard folders:
   - `purge_artifacts.py`: Purges build artifacts for a designated GitHub repository to free up storage quota.
 
 ### 3. Multi-User Gmail Spam & Trash Auto-Cleaner (`gmail_auto_cleaner/`)
-- Built [`gmail_cleaner.py`](gmail_auto_cleaner/gmail_cleaner.py) using standard Python `imaplib` + SSL (`imap.gmail.com:993`).
-- Supported multi-account configurations via [`config.json`](gmail_auto_cleaner/config.json.example) using Google App Passwords.
-- Integrated **Deleted Email Audit Logging**: Before purging, the script extracts and logs email metadata (`subject`, `from`, `date`, `folder`, `account`, `deleted_at`) into [`deleted_emails_log.json`](gmail_auto_cleaner/deleted_emails_log.json).
+- Built [`gmail_cleaner.py`](../../../gmail_auto_cleaner/gmail_cleaner.py) using standard Python `imaplib` + SSL (`imap.gmail.com:993`).
+- Supported multi-account configurations via [`config.json`](../../../gmail_auto_cleaner/config.json.example) using Google App Passwords.
+- Integrated **Deleted Email Audit Logging**: Before purging, the script extracts and logs email metadata (`subject`, `from`, `date`, `folder`, `account`, `deleted_at`) into [`deleted_emails_log.json`](../../../gmail_auto_cleaner/deleted_emails_log.json).
 - Supported `--dry-run` mode to preview deletion subjects without permanently purging messages.
-- Added direct Google App Password links (`https://myaccount.google.com/apppasswords`) and setup guides for Windows Task Scheduler and Cron automation in [`gmail_auto_cleaner/README.md`](gmail_auto_cleaner/README.md).
+- Added direct Google App Password links (`https://myaccount.google.com/apppasswords`) and setup guides for Windows Task Scheduler and Cron automation in [`gmail_auto_cleaner/README.md`](../../../gmail_auto_cleaner/README.md).
 
 ---
 
