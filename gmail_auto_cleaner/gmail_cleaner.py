@@ -4,6 +4,7 @@ from email.header import decode_header
 import json
 import os
 import sys
+import re
 import logging
 import argparse
 from datetime import datetime
@@ -40,32 +41,61 @@ def decode_mime_words(header_val: str) -> str:
     return "".join(decoded_fragments).strip()
 
 
+def sanitize_filename(name: str, max_len: int = 100) -> str:
+    """Sanitize a string to be safe for filenames across Windows, macOS, and Linux."""
+    if not name or not name.strip():
+        return "No_Subject"
+    # Replace illegal characters: <>:"/\|?* and control characters with '_'
+    sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
+    # Collapse multiple spaces / underscores
+    sanitized = re.sub(r'[\s_]+', ' ', sanitized).strip()
+    # Remove trailing periods and spaces (prohibited on Windows)
+    sanitized = sanitized.rstrip('. ')
+    if not sanitized:
+        return "No_Subject"
+    return sanitized[:max_len].strip()
+
+
+def get_account_username(email_address: str) -> str:
+    """Extract account username by removing the @domain suffix (e.g. user@gmail.com -> user)."""
+    username = email_address.split("@")[0].strip() if "@" in email_address else email_address.strip()
+    return sanitize_filename(username, max_len=60)
+
+
 class GmailCleaner:
-    def __init__(self, email_address: str, app_password: str, dry_run: bool = False, log_file: str = "deleted_emails_log.json"):
+    def __init__(self, email_address: str, app_password: str, dry_run: bool = False, log_dir: str = "deleted_emails"):
         self.email = email_address
         self.password = app_password
         self.dry_run = dry_run
         self.imap_server = "imap.gmail.com"
         self.imap_port = 993
-        self.log_file = log_file
+        self.log_dir = log_dir
 
-    def record_deleted_emails(self, records: List[Dict[str, Any]]) -> None:
-        """Append metadata of deleted emails into a local JSON history log."""
+    def record_deleted_emails(self, records: List[Dict[str, Any]]) -> str:
+        """Append metadata of deleted emails into a per-user JSON file in log_dir (e.g. deleted_emails/addytiwari3.json)."""
         if not records:
-            return
-        
+            return ""
+
+        os.makedirs(self.log_dir, exist_ok=True)
+        username = get_account_username(self.email)
+        user_log_file = os.path.join(self.log_dir, f"{username}.json")
+
         history = []
-        if os.path.exists(self.log_file):
+        if os.path.exists(user_log_file):
             try:
-                with open(self.log_file, "r", encoding="utf-8") as f:
+                with open(user_log_file, "r", encoding="utf-8") as f:
                     history = json.load(f)
+                    if not isinstance(history, list):
+                        history = []
             except Exception:
                 history = []
 
         history.extend(records)
 
-        with open(self.log_file, "w", encoding="utf-8") as f:
+        with open(user_log_file, "w", encoding="utf-8") as f:
             json.dump(history, f, indent=2, ensure_ascii=False)
+
+        return user_log_file
 
     def fetch_email_metadata(self, mail: imaplib.IMAP4_SSL, msg_ids: List[bytes], folder_name: str) -> List[Dict[str, Any]]:
         """Fetch Subject, From, Date headers for each email before deletion."""
@@ -139,9 +169,9 @@ class GmailCleaner:
         if status == "OK":
             mail.expunge()
             logger.info(f"[{self.email}] Successfully purged {count} email(s) from '{target_folder}'.")
-            # Save deleted email metadata to log file
-            self.record_deleted_emails(metadata_records)
-            logger.info(f"[{self.email}] Recorded metadata for {len(metadata_records)} deleted email(s) into '{self.log_file}'.")
+            # Save deleted email metadata to per-user file
+            user_log_file = self.record_deleted_emails(metadata_records)
+            logger.info(f"[{self.email}] Recorded metadata for {len(metadata_records)} deleted email(s) into '{user_log_file}'.")
         else:
             logger.error(f"[{self.email}] Failed to set deleted flag on messages in '{target_folder}'.")
             count = 0
@@ -195,14 +225,14 @@ def load_config(config_path: str) -> List[Dict[str, Any]]:
 def main():
     parser = argparse.ArgumentParser(description="Automated Multi-User Gmail Spam & Trash Auto-Cleaner with Audit Logging")
     parser.add_argument("--config", default="config.json", help="Path to config JSON file containing credentials.")
-    parser.add_argument("--log-file", default="deleted_emails_log.json", help="Path to log JSON file for saving deleted email titles/details.")
+    parser.add_argument("--log-dir", default="deleted_emails", help="Directory where per-user deleted email logs will be stored.")
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without deleting emails.")
     parser.add_argument("--targets", nargs="+", choices=["spam", "trash"], default=["spam", "trash"], help="Folders to clean.")
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_file = args.config if os.path.isabs(args.config) else os.path.join(script_dir, args.config)
-    log_file = args.log_file if os.path.isabs(args.log_file) else os.path.join(script_dir, args.log_file)
+    log_dir = args.log_dir if os.path.isabs(args.log_dir) else os.path.join(script_dir, args.log_dir)
 
     logger.info("Starting Gmail Auto-Cleaner Process...")
     if args.dry_run:
@@ -226,7 +256,7 @@ def main():
             continue
 
         try:
-            cleaner = GmailCleaner(email_address=email, app_password=password, dry_run=args.dry_run, log_file=log_file)
+            cleaner = GmailCleaner(email_address=email, app_password=password, dry_run=args.dry_run, log_dir=log_dir)
             res = cleaner.run(targets=args.targets)
             summary[email] = res
         except Exception as e:
@@ -241,7 +271,9 @@ def main():
         else:
             spam_cnt = stats.get("spam", 0)
             trash_cnt = stats.get("trash", 0)
-            logger.info(f" - {email}: Cleared {spam_cnt} Spam, {trash_cnt} Trash emails. Details saved to '{log_file}'.")
+            username = get_account_username(email)
+            user_log_path = os.path.join(log_dir, f"{username}.json")
+            logger.info(f" - {email}: Cleared {spam_cnt} Spam, {trash_cnt} Trash emails. Details saved to '{user_log_path}'.")
     logger.info("=" * 60)
 
 

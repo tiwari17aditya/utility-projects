@@ -8,6 +8,7 @@ An automated tool to clean the **Spam** and **Trash** (Bin) folders across multi
 
 - **Multi-User Support**: Clean multiple family or personal Gmail accounts in a single run.
 - **Google App Passwords Support**: Bypass 2FA securely without exposing primary passwords.
+- **Per-User Audit Logs**: Stores deleted email metadata in per-user JSON files (`deleted_emails/<username>.json`) named after the username without `@gmail.com` suffix.
 - **Dry-Run Mode (`--dry-run`)**: Preview the number of emails that would be purged without actually deleting them.
 - **Flexible Target Selection**: Choose to empty only Spam (`--targets spam`), only Trash (`--targets trash`), or both.
 - **Zero External Dependencies**: Built using standard Python modules (`imaplib`, `ssl`, `json`, `argparse`, `logging`).
@@ -78,6 +79,46 @@ python gmail_cleaner.py --targets spam
 ### Clean Only Trash
 ```bash
 python gmail_cleaner.py --targets trash
+```
+
+### Custom Audit Log Directory
+```bash
+python gmail_cleaner.py --log-dir "C:/path/to/my_logs"
+```
+
+---
+
+## Audit Log Structure
+
+Deleted emails are automatically cataloged per account into individual JSON files named after the email username (without `@gmail.com` suffix) inside the `deleted_emails/` folder:
+
+```
+deleted_emails/
+├── addytiwari3.json      # Contains all deleted emails & metadata for addytiwari3@gmail.com
+├── personal_user.json    # Contains all deleted emails & metadata for personal_user@gmail.com
+└── ...
+```
+
+Each user JSON file (`deleted_emails/<username>.json`) stores the history of deleted emails with their titles and metadata:
+```json
+[
+  {
+    "deleted_at": "2026-08-19T13:22:50.123456",
+    "account": "addytiwari3@gmail.com",
+    "folder": "[Gmail]/Spam",
+    "subject": "Discount Offer on Shoes",
+    "from": "promotions@store.com",
+    "date": "Wed, 19 Aug 2026 07:15:00 +0000"
+  },
+  {
+    "deleted_at": "2026-08-19T13:25:10.789101",
+    "account": "addytiwari3@gmail.com",
+    "folder": "[Gmail]/Trash",
+    "subject": "Security Alert",
+    "from": "no-reply@accounts.google.com",
+    "date": "Wed, 19 Aug 2026 08:30:00 +0000"
+  }
+]
 ```
 
 ---

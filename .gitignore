@@ -4,6 +4,7 @@
 gmail_auto_cleaner/config.json
 
 # Audit Logs & Data History
+gmail_auto_cleaner/deleted_emails/
 gmail_auto_cleaner/deleted_emails_log.json
 gmail_auto_cleaner/*.log
 D:\System_Maintenance_Logs/
