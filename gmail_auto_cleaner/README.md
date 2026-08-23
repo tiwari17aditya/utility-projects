@@ -8,7 +8,7 @@ An automated tool to clean the **Spam** and **Trash** (Bin) folders across multi
 
 - **Multi-User Support**: Clean multiple family or personal Gmail accounts in a single run.
 - **Google App Passwords Support**: Bypass 2FA securely without exposing primary passwords.
-- **Per-User Audit Logs**: Stores deleted email metadata in per-user JSON files (`deleted_emails/<username>.json`) named after the username without `@gmail.com` suffix.
+- **Per-User Audit Logs**: Stores deleted email metadata in per-user date-based JSON files (`deleted_emails/<username>/<dd_mm_yyyy>_<username>.json`).
 - **Dry-Run Mode (`--dry-run`)**: Preview the number of emails that would be purged without actually deleting them.
 - **Flexible Target Selection**: Choose to empty only Spam (`--targets spam`), only Trash (`--targets trash`), or both.
 - **Zero External Dependencies**: Built using standard Python modules (`imaplib`, `ssl`, `json`, `argparse`, `logging`).
@@ -90,16 +90,20 @@ python gmail_cleaner.py --log-dir "C:/path/to/my_logs"
 
 ## Audit Log Structure
 
-Deleted emails are automatically cataloged per account into individual JSON files named after the email username (without `@gmail.com` suffix) inside the `deleted_emails/` folder:
+Deleted emails are automatically cataloged per account into individual subdirectories and date-based JSON files (formatted as `dd_mm_yyyy`) inside the `deleted_emails/` folder:
 
 ```
 deleted_emails/
-├── addytiwari3.json      # Contains all deleted emails & metadata for addytiwari3@gmail.com
-├── personal_user.json    # Contains all deleted emails & metadata for personal_user@gmail.com
+├── abc/
+│   ├── 23_08_2026_abc.json   # Deleted emails & metadata for abc@gmail.com on 23-Aug-2026
+│   └── ...
+├── addytiwari3/
+│   ├── 23_08_2026_addytiwari3.json
+│   └── ...
 └── ...
 ```
 
-Each user JSON file (`deleted_emails/<username>.json`) stores the history of deleted emails with their titles and metadata:
+Each date-based JSON file (`deleted_emails/<username>/<dd_mm_yyyy>_<username>.json`) stores the history of deleted emails for that specific deletion date with their titles and metadata:
 ```json
 [
   {
