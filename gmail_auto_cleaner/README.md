@@ -7,10 +7,11 @@ An automated tool to clean the **Spam** and **Trash** (Bin) folders across multi
 ## Features
 
 - **Multi-User Support**: Clean multiple family or personal Gmail accounts in a single run.
+- **Smart Category Classifier**: Inspects `Promotions`, `Updates`, `Social`, and `Forums` tab labels and automatically recommends what to **Retain** (bank statements, receipts, orders, OTPs, security alerts) vs. what can be **Deleted** (promotional newsletters, marketing blasts).
 - **Google App Passwords Support**: Bypass 2FA securely without exposing primary passwords.
-- **Per-User Audit Logs**: Stores deleted email metadata in per-user date-based JSON files (`deleted_emails/<username>/<dd_mm_yyyy>_<username>.json`).
-- **Dry-Run Mode (`--dry-run`)**: Preview the number of emails that would be purged without actually deleting them.
-- **Flexible Target Selection**: Choose to empty only Spam (`--targets spam`), only Trash (`--targets trash`), or both.
+- **Per-User Audit Logs & HTML Reports**: Stores deleted email metadata in JSON files (`deleted_emails/<username>/`) and generates interactive visual HTML dashboards (`inspection_report_<username>.html`).
+- **Dry-Run Mode (`--dry-run`)**: Preview recommendations and deletions across all accounts without altering emails.
+- **Flexible Target Selection**: Choose Spam (`--targets spam`), Trash (`--targets trash`), Category Labels (`--targets categories`), or all.
 - **Zero External Dependencies**: Built using standard Python modules (`imaplib`, `ssl`, `json`, `argparse`, `logging`).
 - **Automation Ready**: Easy integration with Windows Task Scheduler or Linux Cron jobs.
 
@@ -84,6 +85,18 @@ python gmail_cleaner.py --targets trash
 ### Custom Audit Log Directory
 ```bash
 python gmail_cleaner.py --log-dir "C:/path/to/my_logs"
+```
+
+### Inspect Deleted Email Titles & Location (Interactive Viewer)
+```bash
+# Interactive selection (holds window open until any key is pressed):
+python list_deleted_titles.py
+
+# Direct CLI inspection:
+python list_deleted_titles.py --email addytiwari3@gmail.com --date 25_August_2026
+
+# Disable window holding pause (for scripts/automation):
+python list_deleted_titles.py --no-pause
 ```
 
 ---

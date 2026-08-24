@@ -1,3 +1,7 @@
+"""
+Automated Multi-User Gmail Spam, Trash & Category Auto-Cleaner with Smart Retain/Delete Classifier & Audit Logging.
+"""
+
 import imaplib
 import email
 from email.header import decode_header
@@ -11,6 +15,9 @@ import socket
 from datetime import datetime
 from typing import List, Dict, Any
 
+from category_classifier import CategoryClassifier
+from report_generator import InspectionReportGenerator
+
 # Setup Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -22,6 +29,13 @@ logger = logging.getLogger("GmailCleaner")
 # Known folder name variants across different locales / configurations
 SPAM_FOLDERS = ["[Gmail]/Spam", "Spam", "[Gmail]/Junk", "Junk"]
 TRASH_FOLDERS = ["[Gmail]/Bin", "[Gmail]/Trash", "Trash", "Bin"]
+
+LABEL_QUERIES = {
+    "Promotions": ['"\\\\Promotions"', '"Category Promotions"', '"Promotions"'],
+    "Updates": ['"\\\\Updates"', '"Category Updates"', '"Updates"'],
+    "Social": ['"\\\\Social"', '"Category Social"', '"Social"'],
+    "Forums": ['"\\\\Forums"', '"Category Forums"', '"Forums"']
+}
 
 
 def decode_mime_words(header_val: str) -> str:
@@ -72,8 +86,9 @@ class GmailCleaner:
         self.log_dir = log_dir
         self.timeout = timeout
         self.logger = logging.getLogger("GmailCleaner")
+        self.classifier = CategoryClassifier()
 
-    def record_deleted_emails(self, records: List[Dict[str, Any]]) -> str:
+    def record_deleted_emails(self, records: List[Dict[str, Any]], log_suffix: str = "") -> str:
         """Append metadata of deleted emails into a per-user date-based JSON file in log_dir."""
         if not records:
             return ""
@@ -84,7 +99,8 @@ class GmailCleaner:
             os.makedirs(user_dir, exist_ok=True)
 
             today_str = datetime.now().strftime("%d_%m_%Y")
-            user_log_file = os.path.join(user_dir, f"{today_str}_{username}.json")
+            suffix_part = f"_{log_suffix}" if log_suffix else ""
+            user_log_file = os.path.join(user_dir, f"{today_str}_{username}{suffix_part}.json")
 
             history = []
             if os.path.exists(user_log_file):
@@ -108,7 +124,7 @@ class GmailCleaner:
             return ""
 
     def get_server_folders(self, mail: imaplib.IMAP4_SSL) -> List[str]:
-        """Fetch available folder names directly from Gmail IMAP server to avoid select timeouts."""
+        """Fetch available folder names directly from Gmail IMAP server."""
         folder_names = []
         try:
             status, data = mail.list()
@@ -147,7 +163,7 @@ class GmailCleaner:
             id_sequence = b",".join(batch_ids)
 
             try:
-                self.logger.debug(f"[{self.email}] Fetching batch {(i//batch_size) + 1}/{(total_msgs + batch_size - 1)//batch_size} (IDs {i+1} to {min(i+batch_size, total_msgs)})...")
+                self.logger.debug(f"[{self.email}] Fetching batch {(i//batch_size) + 1}/{(total_msgs + batch_size - 1)//batch_size}...")
                 status, data = mail.fetch(id_sequence, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
                 if status != "OK" or not data:
                     self.logger.warning(f"[{self.email}] IMAP fetch status '{status}' for batch {i+1}-{min(i+batch_size, total_msgs)}")
@@ -176,19 +192,13 @@ class GmailCleaner:
                     except Exception as e:
                         self.logger.debug(f"[{self.email}] Error parsing individual message header in batch: {e}")
 
-                processed = len(records)
-                if total_msgs > 50:
-                    self.logger.info(f"[{self.email}] Metadata fetch progress: {processed}/{total_msgs} email(s) parsed.")
-
             except Exception as e:
-                self.logger.error(f"[{self.email}] Error fetching metadata batch {i+1} to {min(i+batch_size, total_msgs)}: {e}")
+                self.logger.error(f"[{self.email}] Error fetching metadata batch: {e}")
 
         return records
 
     def clean_folder(self, mail: imaplib.IMAP4_SSL, folder_candidates: List[str], folder_label: str = "", server_folders: List[str] = None) -> int:
         target_folder = None
-
-        # Filter folder candidates against folders actually present on the server
         if server_folders:
             matched = [c for c in folder_candidates if c in server_folders]
             if matched:
@@ -198,14 +208,11 @@ class GmailCleaner:
 
         for candidate in folder_candidates:
             try:
-                self.logger.debug(f"[{self.email}] Selecting folder: '{candidate}' (readonly={self.dry_run})")
                 status, response = mail.select(f'"{candidate}"', readonly=self.dry_run)
                 if status == "OK":
                     target_folder = candidate
                     self.logger.info(f"[{self.email}] Successfully selected folder: '{target_folder}'")
                     break
-                else:
-                    self.logger.debug(f"[{self.email}] Folder '{candidate}' not selected (Status: {status}, Response: {response})")
             except Exception as e:
                 self.logger.warning(f"[{self.email}] Error selecting candidate folder '{candidate}': {e}")
 
@@ -214,7 +221,6 @@ class GmailCleaner:
             return 0
 
         try:
-            self.logger.info(f"[{self.email}] Searching for messages in folder '{target_folder}'...")
             status, messages = mail.search(None, "ALL")
             if status != "OK" or not messages or not messages[0]:
                 self.logger.info(f"[{self.email}] Folder '{target_folder}' is empty.")
@@ -224,44 +230,152 @@ class GmailCleaner:
             count = len(msg_ids)
             self.logger.info(f"[{self.email}] Found {count} message(s) in '{target_folder}'.")
 
-            # Fetch metadata for audit logging
             metadata_records = self.fetch_email_metadata(mail, msg_ids, target_folder)
 
             if self.dry_run:
                 self.logger.info(f"[{self.email}] [DRY-RUN] Would delete {count} email(s) from '{target_folder}'.")
-                for rec in metadata_records[:5]:
-                    self.logger.info(f"   ↳ [DRY-RUN Subject]: {rec['subject']} | From: {rec['from']}")
-                if len(metadata_records) > 5:
-                    self.logger.info(f"   ↳ ... and {len(metadata_records) - 5} more.")
                 return count
 
             self.logger.info(f"[{self.email}] Flagging {count} email(s) for deletion in '{target_folder}'...")
-
-            # Store deleted flag on messages
             status, response = mail.store("1:*", "+FLAGS", "(\\Deleted)")
             if status == "OK":
-                self.logger.info(f"[{self.email}] Expunging deleted emails from '{target_folder}'...")
                 expunge_status, expunge_resp = mail.expunge()
-                self.logger.info(f"[{self.email}] Successfully purged {count} email(s) from '{target_folder}' (Status: {expunge_status}).")
-
-                # Save metadata log
-                user_log_file = self.record_deleted_emails(metadata_records)
-                if user_log_file:
-                    self.logger.info(f"[{self.email}] Recorded metadata for {len(metadata_records)} deleted email(s) into '{user_log_file}'.")
+                self.logger.info(f"[{self.email}] Successfully purged {count} email(s) from '{target_folder}'.")
+                self.record_deleted_emails(metadata_records)
             else:
-                self.logger.error(f"[{self.email}] Failed to flag messages in '{target_folder}' (Status: {status}, Response: {response}).")
                 count = 0
 
             try:
                 mail.close()
-            except Exception as e:
-                self.logger.debug(f"[{self.email}] Error closing folder '{target_folder}': {e}")
+            except Exception:
+                pass
 
             return count
 
         except Exception as e:
-            self.logger.error(f"[{self.email}] Error during cleanup of folder '{target_folder}': {e}", exc_info=True)
+            self.logger.error(f"[{self.email}] Error during cleanup of folder '{target_folder}': {e}")
             return 0
+
+    def clean_categories(self, mail: imaplib.IMAP4_SSL, max_per_category: int = 100) -> Dict[str, Any]:
+        """Scans category labels (Promotions, Updates, Social, Forums), applies Classifier, and deletes DELETE candidates while retaining important emails."""
+        self.logger.info(f"[{self.email}] Starting Category Label Inspection & Selective Cleanup...")
+
+        search_folder = '"[Gmail]/All Mail"'
+        select_status, select_data = mail.select(search_folder, readonly=self.dry_run)
+        if select_status != "OK":
+            search_folder = "INBOX"
+            select_status, select_data = mail.select(search_folder, readonly=self.dry_run)
+            if select_status != "OK":
+                self.logger.error(f"[{self.email}] Could not select search folder [Gmail]/All Mail or INBOX")
+                return {"retained": 0, "deleted": 0, "error": "Search folder unselectable"}
+
+        all_inspected = []
+        deleted_records = []
+        total_deleted = 0
+        total_retained = 0
+
+        for cat_name, label_variants in LABEL_QUERIES.items():
+            msg_uids = []
+            successful_label = None
+
+            for label_query in label_variants:
+                try:
+                    status, data = mail.uid("SEARCH", None, "X-GM-LABELS", label_query)
+                    if status == "OK" and data and data[0]:
+                        found_uids = data[0].split()
+                        if found_uids:
+                            msg_uids = found_uids
+                            successful_label = label_query
+                            break
+                except Exception as e:
+                    self.logger.debug(f"[{self.email}] Label query {label_query} failed: {e}")
+
+            if not msg_uids:
+                self.logger.info(f"[{self.email}] Category '{cat_name}': 0 emails found.")
+                continue
+
+            target_uids = msg_uids[-max_per_category:]
+            uid_sequence = b",".join(target_uids)
+
+            self.logger.info(f"[{self.email}] Fetching headers for {len(target_uids)} email(s) in category '{cat_name}'...")
+            fetch_status, headers_data = mail.uid("FETCH", uid_sequence, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE MESSAGE-ID)])")
+            if fetch_status != "OK" or not headers_data:
+                continue
+
+            cat_delete_uids = []
+            for idx_item, item in enumerate(headers_data):
+                if not isinstance(item, tuple) or len(item) < 2:
+                    continue
+
+                raw_bytes = item[1]
+                msg = email.message_from_bytes(raw_bytes)
+
+                header_str = item[0].decode("utf-8", errors="ignore") if isinstance(item[0], bytes) else str(item[0])
+                uid_match = imaplib.re.search(r'UID\s+(\d+)', header_str, imaplib.re.IGNORECASE)
+                uid_val = uid_match.group(1).encode("utf-8") if uid_match else target_uids[idx_item % len(target_uids)]
+
+                subject = decode_mime_words(msg.get("Subject", "(No Subject)"))
+                from_addr = decode_mime_words(msg.get("From", "(Unknown Sender)"))
+                date_sent = msg.get("Date", "")
+                msg_id = msg.get("Message-ID", "")
+
+                meta = {
+                    "account": self.email,
+                    "folder": cat_name,
+                    "imap_folder": search_folder,
+                    "label_used": successful_label,
+                    "uid": uid_val.decode("utf-8"),
+                    "message_id": msg_id,
+                    "subject": subject,
+                    "from": from_addr,
+                    "date": date_sent
+                }
+
+                action, reason, confidence = self.classifier.classify_email(meta)
+                meta["action"] = action
+                meta["reason"] = reason
+                meta["confidence"] = confidence
+
+                all_inspected.append(meta)
+
+                if action == "DELETE":
+                    deleted_records.append(meta)
+                    cat_delete_uids.append(uid_val)
+                    total_deleted += 1
+                else:
+                    total_retained += 1
+
+            self.logger.info(f"[{self.email}] Category '{cat_name}': {len(cat_delete_uids)} delete candidate(s) out of {len(target_uids)} parsed.")
+
+            if not self.dry_run and cat_delete_uids:
+                self.logger.info(f"[{self.email}] Executing deletion of {len(cat_delete_uids)} email(s) in category '{cat_name}'...")
+                delete_uid_sequence = b",".join(cat_delete_uids)
+                store_status, store_resp = mail.uid("STORE", delete_uid_sequence, "+FLAGS", "(\\Deleted)")
+                if store_status == "OK":
+                    mail.expunge()
+                    self.logger.info(f"[{self.email}] Successfully expunged {len(cat_delete_uids)} email(s) from category '{cat_name}'.")
+
+        # Save HTML and Audit JSON
+        username = get_account_username(self.email)
+        user_dir = os.path.join(self.log_dir, username)
+        os.makedirs(user_dir, exist_ok=True)
+
+        if deleted_records and not self.dry_run:
+            self.record_deleted_emails(deleted_records, log_suffix="category_deletions")
+
+        html_file = os.path.join(user_dir, f"inspection_report_{username}.html")
+        InspectionReportGenerator.generate_html_report(self.email, all_inspected, html_file)
+        
+        json_file = os.path.join(user_dir, f"inspection_data_{username}.json")
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump(all_inspected, f, indent=2, ensure_ascii=False)
+
+        return {
+            "retained": total_retained,
+            "deleted": total_deleted,
+            "html_report": html_file,
+            "json_data": json_file
+        }
 
     def run(self, targets: List[str]) -> Dict[str, Any]:
         results = {}
@@ -278,10 +392,7 @@ class GmailCleaner:
                 raise imaplib.IMAP4.error(f"Login rejected: {login_resp}")
 
             self.logger.info(f"[{self.email}] Step 3/3: Authentication successful!")
-            
-            # Discover server folder structure to optimize selection
             server_folders = self.get_server_folders(mail)
-            self.logger.info(f"[{self.email}] Proceeding to target cleanup: {targets}")
 
             if "spam" in targets:
                 try:
@@ -297,14 +408,20 @@ class GmailCleaner:
                     self.logger.error(f"[{self.email}] Unhandled error cleaning Trash: {e}")
                     results["trash_error"] = str(e)
 
+            if "categories" in targets or any(t in ["promotions", "updates", "social", "forums"] for t in targets):
+                try:
+                    results["categories"] = self.clean_categories(mail)
+                except Exception as e:
+                    self.logger.error(f"[{self.email}] Unhandled error cleaning Categories: {e}")
+                    results["categories_error"] = str(e)
+
             try:
-                self.logger.info(f"[{self.email}] Logging out from IMAP server...")
                 mail.logout()
             except Exception as e:
                 self.logger.debug(f"[{self.email}] Exception during logout: {e}")
 
         except socket.timeout:
-            err_msg = f"Network timeout ({self.timeout}s) connecting to {self.imap_server}:{self.imap_port}. Check internet connection or firewall."
+            err_msg = f"Network timeout ({self.timeout}s) connecting to {self.imap_server}:{self.imap_port}."
             self.logger.error(f"[{self.email}] {err_msg}")
             results["error"] = err_msg
         except imaplib.IMAP4.error as e:
@@ -345,13 +462,13 @@ def load_config(config_path: str) -> List[Dict[str, Any]]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Automated Multi-User Gmail Spam & Trash Auto-Cleaner with Audit Logging & Step-by-Step Error Debugging")
+    parser = argparse.ArgumentParser(description="Automated Multi-User Gmail Spam, Trash & Category Auto-Cleaner")
     parser.add_argument("--config", default="config.json", help="Path to config JSON file containing credentials.")
     parser.add_argument("--log-dir", default="deleted_emails", help="Directory where per-user deleted email logs will be stored.")
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without deleting emails.")
-    parser.add_argument("--targets", nargs="+", choices=["spam", "trash"], default=["spam", "trash"], help="Folders to clean.")
-    parser.add_argument("--timeout", type=int, default=30, help="IMAP socket timeout in seconds (default: 30s). Prevents infinite hanging.")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose debug logging for troubleshooting.")
+    parser.add_argument("--targets", nargs="+", choices=["spam", "trash", "categories"], default=["spam", "trash", "categories"], help="Folders/categories to clean.")
+    parser.add_argument("--timeout", type=int, default=30, help="IMAP socket timeout in seconds (default: 30s).")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose debug logging.")
     args = parser.parse_args()
 
     if args.verbose:
@@ -362,7 +479,7 @@ def main():
     log_dir = args.log_dir if os.path.isabs(args.log_dir) else os.path.join(script_dir, args.log_dir)
 
     logger = logging.getLogger("GmailCleaner")
-    logger.info("Starting Gmail Auto-Cleaner Process...")
+    logger.info("Starting Multi-Account Gmail Auto-Cleaner Process...")
     if args.dry_run:
         logger.info("*** DRY-RUN MODE ENABLED - No emails will be permanently deleted ***")
 
@@ -383,7 +500,7 @@ def main():
             continue
 
         if not email_addr or not password:
-            logger.warning(f"Skipping account [{idx}]: Missing 'email' or 'app_password' in config: {acc}")
+            logger.warning(f"Skipping account [{idx}]: Missing 'email' or 'app_password' in config")
             summary[email_addr or f"Account_{idx}"] = {"status": "SKIPPED", "reason": "Missing email or app_password"}
             continue
 
@@ -412,10 +529,10 @@ def main():
         else:
             spam_cnt = stats.get("spam", 0)
             trash_cnt = stats.get("trash", 0)
-            username = get_account_username(email_addr)
-            today_str = datetime.now().strftime("%d_%m_%Y")
-            user_log_path = os.path.join(log_dir, username, f"{today_str}_{username}.json")
-            logger.info(f" ✅ {email_addr}: Cleared {spam_cnt} Spam, {trash_cnt} Trash. Log: '{user_log_path}'")
+            cat_stats = stats.get("categories", {})
+            cat_del = cat_stats.get("deleted", 0) if isinstance(cat_stats, dict) else 0
+            cat_ret = cat_stats.get("retained", 0) if isinstance(cat_stats, dict) else 0
+            logger.info(f" ✅ {email_addr}: Cleared {spam_cnt} Spam, {trash_cnt} Trash, {cat_del} Category Promos (Retained {cat_ret} Important).")
     logger.info("=" * 70)
 
 
