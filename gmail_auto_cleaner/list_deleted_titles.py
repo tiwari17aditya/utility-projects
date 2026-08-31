@@ -160,6 +160,7 @@ def main():
     parser = argparse.ArgumentParser(description="List deleted email titles and location from deleted_emails logs.")
     parser.add_argument("--email", "-e", help="Target email address or username.")
     parser.add_argument("--date", "-d", help="Target date in format 'date_nameofmonth_year' (e.g. 25_August_2026) or 'dd_mm_yyyy'.")
+    parser.add_argument("--review-pending", action="store_true", help="Display staged Updates & Primary candidates pending user review.")
     parser.add_argument("--no-pause", action="store_true", help="Do not wait for keypress before closing window.")
     args = parser.parse_args()
 
@@ -191,11 +192,44 @@ def main():
             target_email_input = user_input
 
     username = sanitize_username(target_email_input)
+    user_dir = os.path.join(LOG_DIR, username)
+
+    # Check for pending review request
+    if args.review_pending:
+        review_file = os.path.join(user_dir, f"review_pending_{username}.json")
+        if not os.path.exists(review_file):
+            print(f"❌ No pending review file found at '{review_file}'. Run gmail_cleaner.py first.")
+            finish(1)
+
+        try:
+            with open(review_file, "r", encoding="utf-8") as f:
+                candidates = json.load(f)
+        except Exception as e:
+            print(f"Error reading review file: {e}")
+            finish(1)
+
+        print("\n" + "=" * 80)
+        print(f"STAGED DELETION CANDIDATES PENDING REVIEW")
+        print(f"Account:      {target_email_input}")
+        print(f"Total Staged: {len(candidates)}")
+        print("=" * 80 + "\n")
+
+        print("sr no, || Category type || title of mail")
+        print("-" * 80)
+        for idx, item in enumerate(candidates, 1):
+            fld = item.get("folder", "Unknown")
+            location = format_folder_location(fld)
+            subj = item.get("subject", "(No Subject)").replace("\r\n", " ").replace("\n", " ").strip()
+            print(f"{idx} || {location} || {subj}")
+
+        print("-" * 80)
+        finish(0)
+
     date_map = find_date_logs(username)
 
     if not date_map:
         print(f"\n❌ No deletion logs found for account '{target_email_input}' (username dir: '{username}').")
-        print(f"Directory checked: {os.path.join(LOG_DIR, username)}")
+        print(f"Directory checked: {user_dir}")
         finish(1)
 
     # Step 2 & 3: List Dates & Present Dropdown Selection
@@ -239,7 +273,7 @@ def main():
     print(f"Total Emails:  {len(records)}")
     print("=" * 80 + "\n")
 
-    print("Sr No. | Title | Location Deleted |")
+    print("sr no, || Category type || title of mail")
     print("-" * 80)
 
     for idx, r in enumerate(records, 1):
@@ -247,14 +281,16 @@ def main():
         folder_raw = r.get("folder", "Unknown")
         location = format_folder_location(folder_raw)
 
-        print(f"{idx} | {subject} | {location}")
+        print(f"{idx} || {location} || {subject}")
 
     print("-" * 80)
     print(f"Summary: Displayed {len(records)} deleted title(s) for date '{selected_date}'.")
+
 
     finish(0)
 
 
 if __name__ == "__main__":
     main()
+
 

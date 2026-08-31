@@ -62,9 +62,18 @@ Copy `config.json.example` to `config.json` and add entries for all users:
 
 ## Step 3: Usage
 
-### Preview Deletions (Dry-Run Mode)
+### Tiered Deletion & Review Strategy:
+- **Promotions & Social**: Automatically purged during cleaning runs.
+- **Updates & Primary**: Scanned and rated by deletion confidence score. Candidates are staged and presented in an interactive review menu (`[A]ll`, `[H]igh confidence`, `[S]elect numbers`, `[N]one`) and saved to `review_pending_<username>.json`.
+
+### Clean Single Account (e.g. `addytiwari5@gmail.com`)
 ```bash
-python gmail_cleaner.py --dry-run
+python gmail_cleaner.py --account addytiwari5@gmail.com
+```
+
+### Preview Single Account (Dry-Run Mode)
+```bash
+python gmail_cleaner.py --account addytiwari5@gmail.com --dry-run
 ```
 
 ### Execute Purge for All Accounts
@@ -72,19 +81,15 @@ python gmail_cleaner.py --dry-run
 python gmail_cleaner.py
 ```
 
-### Clean Only Spam
+### Clean Only Spam or Trash
 ```bash
 python gmail_cleaner.py --targets spam
-```
-
-### Clean Only Trash
-```bash
 python gmail_cleaner.py --targets trash
 ```
 
-### Custom Audit Log Directory
+### Inspect Pending Updates & Primary Deletion Candidates
 ```bash
-python gmail_cleaner.py --log-dir "C:/path/to/my_logs"
+python list_deleted_titles.py --email addytiwari5@gmail.com --review-pending
 ```
 
 ### Inspect Deleted Email Titles & Location (Interactive Viewer)
@@ -98,6 +103,7 @@ python list_deleted_titles.py --email addytiwari3@gmail.com --date 25_August_202
 # Disable window holding pause (for scripts/automation):
 python list_deleted_titles.py --no-pause
 ```
+
 
 ---
 

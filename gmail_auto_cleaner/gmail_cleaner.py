@@ -13,7 +13,7 @@ import logging
 import argparse
 import socket
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 from category_classifier import CategoryClassifier
 from report_generator import InspectionReportGenerator
@@ -32,10 +32,15 @@ TRASH_FOLDERS = ["[Gmail]/Bin", "[Gmail]/Trash", "Trash", "Bin"]
 
 LABEL_QUERIES = {
     "Promotions": ['"\\\\Promotions"', '"Category Promotions"', '"Promotions"'],
-    "Updates": ['"\\\\Updates"', '"Category Updates"', '"Updates"'],
     "Social": ['"\\\\Social"', '"Category Social"', '"Social"'],
+    "Updates": ['"\\\\Updates"', '"Category Updates"', '"Updates"'],
+    "Primary": ['"\\\\Primary"', '"Category Primary"', '"Primary"', 'INBOX'],
     "Forums": ['"\\\\Forums"', '"Category Forums"', '"Forums"']
 }
+
+AUTO_DELETE_CATEGORIES = ["Promotions", "Social", "Forums"]
+REVIEW_CATEGORIES = ["Updates", "Primary"]
+
 
 
 def decode_mime_words(header_val: str) -> str:
@@ -77,7 +82,7 @@ def get_account_username(email_address: str) -> str:
 
 
 class GmailCleaner:
-    def __init__(self, email_address: str, app_password: str, dry_run: bool = False, log_dir: str = "deleted_emails", timeout: int = 30):
+    def __init__(self, email_address: str, app_password: str, dry_run: bool = False, log_dir: str = "deleted_emails", timeout: int = 30, interactive: bool = True):
         self.email = email_address
         self.password = app_password
         self.dry_run = dry_run
@@ -85,8 +90,10 @@ class GmailCleaner:
         self.imap_port = 993
         self.log_dir = log_dir
         self.timeout = timeout
+        self.interactive = interactive
         self.logger = logging.getLogger("GmailCleaner")
         self.classifier = CategoryClassifier()
+
 
     def record_deleted_emails(self, records: List[Dict[str, Any]], log_suffix: str = "") -> str:
         """Append metadata of deleted emails into a per-user date-based JSON file in log_dir."""
@@ -256,9 +263,131 @@ class GmailCleaner:
             self.logger.error(f"[{self.email}] Error during cleanup of folder '{target_folder}': {e}")
             return 0
 
+    def prompt_and_execute_review(self, mail: imaplib.IMAP4_SSL, review_candidates: List[Dict[str, Any]], search_folder: str = '"[Gmail]/All Mail"') -> Tuple[int, List[Dict[str, Any]]]:
+        """Displays confidence-ranked review table for Updates & Primary emails and executes user-approved deletions."""
+        if not review_candidates:
+            return 0, []
+
+        def parse_indices(input_str: str) -> set:
+            indices = set()
+            for part in input_str.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "-" in part:
+                    sub = part.split("-", 1)
+                    if sub[0].isdigit() and sub[1].isdigit():
+                        for i in range(int(sub[0]), int(sub[1]) + 1):
+                            indices.add(i)
+                elif part.isdigit():
+                    indices.add(int(part))
+            return indices
+
+        print("\n" + "=" * 90)
+        print(f" 🔍 PENDING REVIEW: CANDIDATES FOR DELETION (Account: {self.email})")
+        print(f"    The following Updates and Primary emails were flagged based on deletion confidence.")
+        print(f"    They will NOT be deleted unless explicitly confirmed by you below.")
+        print("=" * 90)
+
+        print(f"{'#':<4} | {'Folder':<10} | {'Conf.':<6} | {'Subject':<40} | {'From':<23}")
+        print("-" * 90)
+
+        for idx, item in enumerate(review_candidates, 1):
+            conf = f"{item.get('confidence', 50)}%"
+            folder = item.get("folder", "Unknown")[:10]
+            subj = item.get("subject", "(No Subject)")[:38]
+            from_addr = item.get("from", "(Unknown)")[:23]
+            print(f"{idx:<4} | {folder:<10} | {conf:<6} | {subj:<40} | {from_addr:<23}")
+
+        print("-" * 90)
+        print("Review Options:")
+        print("  [A] Approve ALL candidates for deletion (Updates & Primary)")
+        print("  [H] Approve HIGH confidence candidates only (>= 80% confidence)")
+        print("  [U] Approve UPDATES candidates only")
+        print("  [P] Approve PRIMARY candidates only")
+        print("  [S] Select specific candidate numbers to DELETE (e.g. 1, 3, 5-8)")
+        print("  [E] EXCLUDE / KEEP specific candidate numbers (Delete all EXCEPT entered numbers, e.g. 12, 15)")
+        print("  [N] Delete NONE (Skip all pending Updates & Primary emails)")
+        print("=" * 90)
+
+        approved = []
+        try:
+            choice = input(f"\nSelect action for {self.email} [A/H/U/P/S/E/N] (default: N): ").strip().upper()
+        except (KeyboardInterrupt, EOFError):
+            print("\nSkipping review deletion.")
+            return 0, []
+
+        if choice == "A":
+            approved = review_candidates
+        elif choice == "H":
+            approved = [item for item in review_candidates if item.get("confidence", 0) >= 80]
+        elif choice == "U":
+            approved = [item for item in review_candidates if "updates" in item.get("folder", "").lower()]
+        elif choice == "P":
+            approved = [item for item in review_candidates if "primary" in item.get("folder", "").lower() or "inbox" in item.get("folder", "").lower()]
+        elif choice == "E":
+            try:
+                num_input = input("Enter candidate numbers/ranges to KEEP/RETAIN (e.g. 12, 15 or 5-8): ").strip()
+                exclude_indices = parse_indices(num_input)
+                approved = [item for idx, item in enumerate(review_candidates, 1) if idx not in exclude_indices]
+                print(f"Excluding {len(exclude_indices)} item(s) {sorted(list(exclude_indices))}. Approved {len(approved)} email(s) for deletion.")
+            except Exception as e:
+                self.logger.warning(f"Error parsing exclusion input: {e}. No items selected.")
+                approved = []
+        elif choice == "S":
+            try:
+                num_input = input("Enter candidate numbers/ranges to delete (or type 'EXCEPT 12, 15' / '!12, 15'): ").strip()
+                if num_input.upper().startswith("EXCEPT") or num_input.startswith("!") or num_input.startswith("-"):
+                    clean_str = re.sub(r'^(EXCEPT|!|-)\s*', '', num_input, flags=re.IGNORECASE)
+                    exclude_indices = parse_indices(clean_str)
+                    approved = [item for idx, item in enumerate(review_candidates, 1) if idx not in exclude_indices]
+                    print(f"Excluding {len(exclude_indices)} item(s) {sorted(list(exclude_indices))}. Approved {len(approved)} email(s) for deletion.")
+                else:
+                    selected_indices = parse_indices(num_input)
+                    approved = [item for idx, item in enumerate(review_candidates, 1) if idx in selected_indices]
+            except Exception as e:
+                self.logger.warning(f"Error parsing index selection: {e}. No items selected.")
+                approved = []
+
+        if not approved:
+            self.logger.info(f"[{self.email}] User selected no items for deletion in review step.")
+            return 0, []
+
+        self.logger.info(f"[{self.email}] Executing user-approved deletion of {len(approved)} reviewed email(s)...")
+
+
+        if self.dry_run:
+            self.logger.info(f"[{self.email}] [DRY-RUN] Would delete {len(approved)} reviewed email(s).")
+            return len(approved), approved
+
+        try:
+            select_status, _ = mail.select(search_folder, readonly=False)
+            if select_status != "OK":
+                mail.select("INBOX", readonly=False)
+
+            uids = [item.get("uid").encode("utf-8") for item in approved if item.get("uid")]
+            if uids:
+                uid_sequence = b",".join(uids)
+                store_status, _ = mail.uid("STORE", uid_sequence, "+FLAGS", "(\\Deleted)")
+                if store_status == "OK":
+                    mail.expunge()
+                    self.logger.info(f"[{self.email}] Successfully expunged {len(approved)} reviewed email(s).")
+                    self.record_deleted_emails(approved, log_suffix="reviewed_deletions")
+                    for item in approved:
+                        item["action"] = "DELETED_POST_REVIEW"
+                    return len(approved), approved
+        except Exception as e:
+            self.logger.error(f"[{self.email}] Error deleting reviewed emails: {e}")
+
+        return 0, []
+
     def clean_categories(self, mail: imaplib.IMAP4_SSL, max_per_category: int = 100) -> Dict[str, Any]:
-        """Scans category labels (Promotions, Updates, Social, Forums), applies Classifier, and deletes DELETE candidates while retaining important emails."""
-        self.logger.info(f"[{self.email}] Starting Category Label Inspection & Selective Cleanup...")
+        """
+        Tiered Category Cleaning:
+        1. Auto-purges Promotions & Social mail types.
+        2. Scans & rates Updates & Primary emails by confidence score; stages candidates for interactive review.
+        """
+        self.logger.info(f"[{self.email}] Starting Tiered Category Inspection & Selective Cleanup...")
 
         search_folder = '"[Gmail]/All Mail"'
         select_status, select_data = mail.select(search_folder, readonly=self.dry_run)
@@ -270,8 +399,9 @@ class GmailCleaner:
                 return {"retained": 0, "deleted": 0, "error": "Search folder unselectable"}
 
         all_inspected = []
-        deleted_records = []
-        total_deleted = 0
+        auto_deleted_records = []
+        review_candidates = []
+        total_auto_deleted = 0
         total_retained = 0
 
         for cat_name, label_variants in LABEL_QUERIES.items():
@@ -302,7 +432,9 @@ class GmailCleaner:
             if fetch_status != "OK" or not headers_data:
                 continue
 
-            cat_delete_uids = []
+            cat_auto_delete_uids = []
+            is_auto_delete_tier = cat_name in AUTO_DELETE_CATEGORIES
+
             for idx_item, item in enumerate(headers_data):
                 if not isinstance(item, tuple) or len(item) < 2:
                     continue
@@ -339,30 +471,49 @@ class GmailCleaner:
                 all_inspected.append(meta)
 
                 if action == "DELETE":
-                    deleted_records.append(meta)
-                    cat_delete_uids.append(uid_val)
-                    total_deleted += 1
+                    if is_auto_delete_tier:
+                        auto_deleted_records.append(meta)
+                        cat_auto_delete_uids.append(uid_val)
+                        total_auto_deleted += 1
+                    else:
+                        # Staged for review (Updates & Primary)
+                        meta["review_status"] = "PENDING_REVIEW"
+                        review_candidates.append(meta)
                 else:
                     total_retained += 1
 
-            self.logger.info(f"[{self.email}] Category '{cat_name}': {len(cat_delete_uids)} delete candidate(s) out of {len(target_uids)} parsed.")
+            if is_auto_delete_tier:
+                self.logger.info(f"[{self.email}] Auto-Purge Category '{cat_name}': {len(cat_auto_delete_uids)} delete candidate(s) out of {len(target_uids)} parsed.")
+                if not self.dry_run and cat_auto_delete_uids:
+                    self.logger.info(f"[{self.email}] Executing auto-deletion of {len(cat_auto_delete_uids)} email(s) in category '{cat_name}'...")
+                    delete_uid_sequence = b",".join(cat_auto_delete_uids)
+                    store_status, store_resp = mail.uid("STORE", delete_uid_sequence, "+FLAGS", "(\\Deleted)")
+                    if store_status == "OK":
+                        mail.expunge()
+                        self.logger.info(f"[{self.email}] Successfully auto-expunged {len(cat_auto_delete_uids)} email(s) from category '{cat_name}'.")
+            else:
+                review_cnt = len([r for r in review_candidates if r.get("folder") == cat_name])
+                self.logger.info(f"[{self.email}] Review Category '{cat_name}': {review_cnt} candidate(s) staged for review out of {len(target_uids)} parsed.")
 
-            if not self.dry_run and cat_delete_uids:
-                self.logger.info(f"[{self.email}] Executing deletion of {len(cat_delete_uids)} email(s) in category '{cat_name}'...")
-                delete_uid_sequence = b",".join(cat_delete_uids)
-                store_status, store_resp = mail.uid("STORE", delete_uid_sequence, "+FLAGS", "(\\Deleted)")
-                if store_status == "OK":
-                    mail.expunge()
-                    self.logger.info(f"[{self.email}] Successfully expunged {len(cat_delete_uids)} email(s) from category '{cat_name}'.")
+        # Record auto-deleted records
+        if auto_deleted_records and not self.dry_run:
+            self.record_deleted_emails(auto_deleted_records, log_suffix="category_autodeletions")
 
-        # Save HTML and Audit JSON
+        # Save staged review JSON file
         username = get_account_username(self.email)
         user_dir = os.path.join(self.log_dir, username)
         os.makedirs(user_dir, exist_ok=True)
+        
+        pending_review_file = os.path.join(user_dir, f"review_pending_{username}.json")
+        with open(pending_review_file, "w", encoding="utf-8") as f:
+            json.dump(review_candidates, f, indent=2, ensure_ascii=False)
 
-        if deleted_records and not self.dry_run:
-            self.record_deleted_emails(deleted_records, log_suffix="category_deletions")
+        # Interactive Review Step for Updates & Primary
+        total_reviewed_deleted = 0
+        if review_candidates and self.interactive:
+            total_reviewed_deleted, approved_items = self.prompt_and_execute_review(mail, review_candidates, search_folder=search_folder)
 
+        # Save HTML and Audit JSON
         html_file = os.path.join(user_dir, f"inspection_report_{username}.html")
         InspectionReportGenerator.generate_html_report(self.email, all_inspected, html_file)
         
@@ -372,10 +523,15 @@ class GmailCleaner:
 
         return {
             "retained": total_retained,
-            "deleted": total_deleted,
+            "auto_deleted": total_auto_deleted,
+            "review_candidates_staged": len(review_candidates),
+            "reviewed_deleted": total_reviewed_deleted,
+            "total_deleted": total_auto_deleted + total_reviewed_deleted,
             "html_report": html_file,
-            "json_data": json_file
+            "json_data": json_file,
+            "pending_review_file": pending_review_file
         }
+
 
     def run(self, targets: List[str]) -> Dict[str, Any]:
         results = {}
@@ -467,6 +623,8 @@ def main():
     parser.add_argument("--log-dir", default="deleted_emails", help="Directory where per-user deleted email logs will be stored.")
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without deleting emails.")
     parser.add_argument("--targets", nargs="+", choices=["spam", "trash", "categories"], default=["spam", "trash", "categories"], help="Folders/categories to clean.")
+    parser.add_argument("--account", "--email", "-e", help="Filter execution to a specific target email address (e.g. addytiwari5@gmail.com).")
+    parser.add_argument("--no-interactive", action="store_true", help="Disable interactive terminal prompts for Updates/Primary review (stage items to JSON file only).")
     parser.add_argument("--timeout", type=int, default=30, help="IMAP socket timeout in seconds (default: 30s).")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose debug logging.")
     args = parser.parse_args()
@@ -484,7 +642,16 @@ def main():
         logger.info("*** DRY-RUN MODE ENABLED - No emails will be permanently deleted ***")
 
     accounts = load_config(config_file)
-    logger.info(f"Loaded {len(accounts)} account(s) from configuration.")
+
+    if args.account:
+        filter_str = args.account.strip().lower()
+        accounts = [acc for acc in accounts if filter_str in acc.get("email", "").lower()]
+        if not accounts:
+            logger.error(f"No account matching '{args.account}' found in configuration file '{config_file}'.")
+            sys.exit(1)
+        logger.info(f"Targeting single account: {accounts[0].get('email')}")
+
+    logger.info(f"Loaded {len(accounts)} account(s) for execution.")
 
     summary = {}
     for idx, acc in enumerate(accounts, 1):
@@ -510,7 +677,8 @@ def main():
                 app_password=password,
                 dry_run=args.dry_run,
                 log_dir=log_dir,
-                timeout=args.timeout
+                timeout=args.timeout,
+                interactive=not args.no_interactive
             )
             res = cleaner.run(targets=args.targets)
             summary[email_addr] = res
@@ -530,11 +698,17 @@ def main():
             spam_cnt = stats.get("spam", 0)
             trash_cnt = stats.get("trash", 0)
             cat_stats = stats.get("categories", {})
-            cat_del = cat_stats.get("deleted", 0) if isinstance(cat_stats, dict) else 0
-            cat_ret = cat_stats.get("retained", 0) if isinstance(cat_stats, dict) else 0
-            logger.info(f" ✅ {email_addr}: Cleared {spam_cnt} Spam, {trash_cnt} Trash, {cat_del} Category Promos (Retained {cat_ret} Important).")
+            if isinstance(cat_stats, dict):
+                cat_auto = cat_stats.get("auto_deleted", 0)
+                cat_rev = cat_stats.get("reviewed_deleted", 0)
+                cat_staged = cat_stats.get("review_candidates_staged", 0)
+                cat_ret = cat_stats.get("retained", 0)
+                logger.info(f" ✅ {email_addr}: Cleared {spam_cnt} Spam, {trash_cnt} Trash, Auto-purged {cat_auto} Promos/Social, Reviewed & Deleted {cat_rev}/{cat_staged} Updates/Primary (Retained {cat_ret} Important).")
+            else:
+                logger.info(f" ✅ {email_addr}: Cleared {spam_cnt} Spam, {trash_cnt} Trash.")
     logger.info("=" * 70)
 
 
 if __name__ == "__main__":
     main()
+

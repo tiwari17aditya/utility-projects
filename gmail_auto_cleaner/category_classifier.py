@@ -71,29 +71,63 @@ class CategoryClassifier:
             delete_score += 35
             reasons.append(f"Subject contains promotional keyword '{delete_match.group()}'")
 
-        # Folder heuristics
         folder_lower = folder.lower()
-        if "promotions" in folder_lower or "promo" in folder_lower:
-            delete_score += 20
-        elif "social" in folder_lower:
-            delete_score += 25
-        elif "updates" in folder_lower:
-            # Updates often contain both receipts and notifications
-            delete_score += 10
+        is_primary = "primary" in folder_lower or "inbox" in folder_lower
+        is_updates = "updates" in folder_lower
+        is_promotions = "promotions" in folder_lower or "promo" in folder_lower
+        is_social = "social" in folder_lower
 
-        # Decide Action
-        if retain_score > delete_score or retain_score >= 35:
-            action = "RETAIN"
-            confidence = min(95, 50 + retain_score)
-            reason_str = " | ".join(reasons) if reasons else "No clear delete triggers; safety retain"
-        elif delete_score > 0:
-            action = "DELETE"
-            confidence = min(95, 40 + delete_score)
-            reason_str = " | ".join(reasons) if reasons else "Promotional / Marketing email pattern"
+        if is_promotions:
+            delete_score += 30
+        elif is_social:
+            delete_score += 30
+        elif is_updates:
+            delete_score += 15
+        elif is_primary:
+            # Primary emails have higher safety bias
+            retain_score += 20
+
+        # Primary inbox rules: Require high delete triggers and zero retain signals
+        if is_primary:
+            if retain_score > 0 or delete_score < 35:
+                action = "RETAIN"
+                confidence = min(98, 60 + retain_score)
+                reason_str = " | ".join(reasons) if reasons else "Primary inbox safety retain"
+            else:
+                action = "DELETE"
+                confidence = min(95, 45 + delete_score)
+                reason_str = " | ".join(reasons) if reasons else "Primary promotional email trigger"
+        elif is_updates:
+            if retain_score > delete_score or retain_score >= 35:
+                action = "RETAIN"
+                confidence = min(95, 50 + retain_score)
+                reason_str = " | ".join(reasons) if reasons else "Updates transactional retain rule"
+            else:
+                action = "DELETE"
+                confidence = min(95, 45 + delete_score)
+                reason_str = " | ".join(reasons) if reasons else "Updates promotional notification rule"
+        elif is_promotions or is_social:
+            if retain_score >= 40:
+                action = "RETAIN"
+                confidence = min(90, 50 + retain_score)
+                reason_str = " | ".join(reasons) if reasons else "Category exception retain"
+            else:
+                action = "DELETE"
+                confidence = min(99, 60 + delete_score)
+                reason_str = " | ".join(reasons) if reasons else f"Auto-purge category '{folder}' rule"
         else:
-            # Default for category emails without specific matches: default candidate for deletion with lower score
-            action = "DELETE"
-            confidence = 55
-            reason_str = f"Default promotional label rule for '{folder}'"
+            if retain_score > delete_score or retain_score >= 35:
+                action = "RETAIN"
+                confidence = min(95, 50 + retain_score)
+                reason_str = " | ".join(reasons) if reasons else "Safety retain"
+            elif delete_score > 0:
+                action = "DELETE"
+                confidence = min(95, 40 + delete_score)
+                reason_str = " | ".join(reasons) if reasons else "Promotional pattern match"
+            else:
+                action = "DELETE"
+                confidence = 55
+                reason_str = f"Default label rule for '{folder}'"
 
         return action, reason_str, confidence
+

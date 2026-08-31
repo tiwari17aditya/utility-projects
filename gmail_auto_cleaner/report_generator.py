@@ -29,22 +29,39 @@ class InspectionReportGenerator:
         rows_html = []
         for idx, r in enumerate(email_records, 1):
             action = r.get("action", "DELETE")
-            badge_class = "bg-green-100 text-green-800" if action == "RETAIN" else "bg-red-100 text-red-800"
-            badge_icon = "🛡️ KEEP" if action == "RETAIN" else "🗑️ DELETE"
+            folder = r.get("folder", "")
+            folder_lower = folder.lower()
+            confidence = r.get("confidence", 50)
+
+            if action == "RETAIN":
+                badge_class = "bg-green-100 text-green-800"
+                badge_icon = f"🛡️ KEEP ({confidence}%)"
+            elif action == "DELETED_POST_REVIEW":
+                badge_class = "bg-red-100 text-red-800"
+                badge_icon = f"🗑️ DELETED ({confidence}%)"
+            elif "promotions" in folder_lower or "social" in folder_lower:
+                badge_class = "bg-rose-100 text-rose-800"
+                badge_icon = f"🔥 AUTO-PURGE ({confidence}%)"
+            else:
+                # Updates & Primary review pending
+                if confidence >= 80:
+                    badge_class = "bg-amber-100 text-amber-800 font-bold border border-amber-300"
+                    badge_icon = f"🔍 HIGH CONF. REVIEW ({confidence}%)"
+                else:
+                    badge_class = "bg-orange-100 text-orange-800"
+                    badge_icon = f"🔍 REVIEW PENDING ({confidence}%)"
             
             subject = r.get("subject", "(No Subject)")
             sender = r.get("from", "(Unknown)")
-            folder = r.get("folder", "")
             date_str = r.get("date", "")
             reason = r.get("reason", "")
-            confidence = r.get("confidence", 50)
 
             rows_html.append(f"""
             <tr class="hover:bg-slate-50 border-b border-slate-100 text-sm">
                 <td class="px-4 py-3 text-slate-500 font-mono">{idx}</td>
                 <td class="px-4 py-3">
                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold {badge_class}">
-                        {badge_icon} ({confidence}%)
+                        {badge_icon}
                     </span>
                 </td>
                 <td class="px-4 py-3 font-medium text-slate-900">{subject}</td>
@@ -63,7 +80,7 @@ class InspectionReportGenerator:
                 <div class="mt-2 flex justify-between items-center text-sm">
                     <span class="text-slate-500">Total: <strong>{stats['total']}</strong></span>
                     <span class="text-green-600 font-medium">Keep: {stats['retain']}</span>
-                    <span class="text-red-600 font-medium">Delete: {stats['delete']}</span>
+                    <span class="text-red-600 font-medium">Delete / Candidate: {stats['delete']}</span>
                 </div>
             </div>
             """)
@@ -85,8 +102,8 @@ class InspectionReportGenerator:
         <!-- Header -->
         <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-                <span class="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full uppercase tracking-wider">Dry-Run Inspection</span>
-                <h1 class="text-2xl font-bold text-slate-900 mt-1">Gmail Category Recommendations</h1>
+                <span class="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full uppercase tracking-wider">Tiered Category Inspection Report</span>
+                <h1 class="text-2xl font-bold text-slate-900 mt-1">Gmail Cleaner Inspection Dashboard</h1>
                 <p class="text-slate-500 text-sm mt-0.5">Account: <strong class="text-slate-700">{account_email}</strong> | Generated at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
             </div>
             <div class="flex gap-3">
@@ -95,7 +112,7 @@ class InspectionReportGenerator:
                     <div class="text-xl font-bold text-green-700">{len(retain_records)}</div>
                 </div>
                 <div class="px-4 py-2 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <div class="text-xs text-red-600 font-semibold uppercase">Delete Candidate</div>
+                    <div class="text-xs text-red-600 font-semibold uppercase">Delete Candidates</div>
                     <div class="text-xl font-bold text-red-700">{len(delete_records)}</div>
                 </div>
                 <div class="px-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-center">
@@ -114,17 +131,17 @@ class InspectionReportGenerator:
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div class="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                 <h3 class="font-bold text-slate-800">Email Title & Classification Summary</h3>
-                <span class="text-xs text-slate-500">Excludes Primary Folder</span>
+                <span class="text-xs text-slate-500">Promotions & Social Auto-Purged | Updates & Primary Confidence Staged</span>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-slate-100 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
                             <th class="px-4 py-3">#</th>
-                            <th class="px-4 py-3">Recommendation</th>
+                            <th class="px-4 py-3">Recommendation & Confidence</th>
                             <th class="px-4 py-3">Subject / Title</th>
                             <th class="px-4 py-3">From</th>
-                            <th class="px-4 py-3">Label</th>
+                            <th class="px-4 py-3">Folder / Label</th>
                             <th class="px-4 py-3">Date</th>
                             <th class="px-4 py-3">Reasoning</th>
                         </tr>
@@ -144,3 +161,4 @@ class InspectionReportGenerator:
             f.write(html_content)
 
         return output_filepath
+

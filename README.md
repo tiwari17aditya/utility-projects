@@ -7,9 +7,12 @@ A curated collection of single-functionality utility scripts, maintenance tools,
 ## 🛠️ Included Utilities
 
 ### 1. 📧 [Gmail Auto-Cleaner](gmail_auto_cleaner/)
-- **Description**: Automated multi-user script to clear Spam and Trash folders for Gmail accounts via IMAP SSL and Google App Passwords.
+- **Description**: Automated multi-user script to clean Spam, Trash, and Category labels (`Promotions`, `Updates`, `Social`, `Primary`). Features auto-purging for Promotions/Social and confidence-based interactive review staging for Updates/Primary emails.
 - **Key Files**:
-  - [`gmail_cleaner.py`](gmail_auto_cleaner/gmail_cleaner.py) - Main cleaning script with multi-account & `--dry-run` support.
+  - [`gmail_cleaner.py`](gmail_auto_cleaner/gmail_cleaner.py) - Main cleaning script with multi-account, `--account` filter, and interactive review menu.
+  - [`category_classifier.py`](gmail_auto_cleaner/category_classifier.py) - Smart Retain vs Delete recommendation engine with Primary inbox protection heuristics.
+  - [`report_generator.py`](gmail_auto_cleaner/report_generator.py) - Interactive visual HTML inspection dashboard generator.
+  - [`list_deleted_titles.py`](gmail_auto_cleaner/list_deleted_titles.py) - Interactive viewer for deleted email titles and staged review candidates (`sr no, || Category type || title of mail`).
   - [`config.json.example`](gmail_auto_cleaner/config.json.example) - Multi-account configuration template.
   - [`README.md`](gmail_auto_cleaner/README.md) - Setup guide for App Passwords and Task Scheduler.
 
@@ -52,7 +55,9 @@ Navigate to any individual tool directory and check its `README.md` or file docu
 
 ## 📅 Session Logs & Roadmap
 - 💡 **Future Enhancements & Roadmap**: [`docs/enhancements.md`](docs/enhancements.md)
-- 📝 **Session Summary (2026-08-19)**: [`docs/logs/session_logs/session_summary_2026-08-19.md`](docs/logs/session_logs/session_summary_2026-08-19.md)
-- 📝 **Session Summary (2026-08-16)**: [`docs/logs/session_logs/session_summary_2026-08-16.md`](docs/logs/session_logs/session_summary_2026-08-16.md)
+- 📝 **Session Summary (2026-08-31)**: [`docs/logs/session_logs/session_summary_2026-08-31.md`](docs/logs/session_logs/session_summary_2026-08-31.md)
+- 📝 **Session Summary (2026-08-25)**: [`docs/logs/session_logs/session_summary_2026-08-25.md`](docs/logs/session_logs/session_summary_2026-08-25.md)
+- 📝 **Session Summary (2026-08-23)**: [`docs/logs/session_logs/session_summary_2026-08-23.md`](docs/logs/session_logs/session_summary_2026-08-23.md)
+
 
 
